@@ -11,6 +11,7 @@ import (
 	"rinha/pkg"
 	"strconv"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/joho/godotenv"
 )
@@ -29,6 +30,7 @@ func writeJSONError(w http.ResponseWriter, status int, message string) {
 }
 
 func NewHandler() http.Handler {
+	uuid.EnableRandPool()
 	err := godotenv.Load(".env")
 
 	if err != nil {
@@ -38,9 +40,7 @@ func NewHandler() http.Handler {
 	mux := http.NewServeMux()
 	db := database.CreateDb()
 
-	personService := PersonService{
-		db: db,
-	}
+	personService := NewPersonService(db)
 
 	mux.HandleFunc("POST /pessoas", func(w http.ResponseWriter, r *http.Request) {
 		defer r.Body.Close()
@@ -52,7 +52,11 @@ func NewHandler() http.Handler {
 			return
 		}
 
-		id, err := personService.CreatePerson(r.Context(), req.Name, req.Nickname, req.Birthday, req.Stack)
+		// id, err := personService.CreatePerson(r.Context(), req.Name, req.Nickname, req.Birthday, req.Stack)
+		req.Id = uuid.NewString()
+		personService.queue <- insertRequest{
+			person: req,
+		}
 
 		if err != nil {
 			fmt.Println(err)
@@ -60,7 +64,7 @@ func NewHandler() http.Handler {
 			return
 		}
 
-		w.Header().Set("Location", fmt.Sprintf("/pessoas/%v", id))
+		w.Header().Set("Location", fmt.Sprintf("/pessoas/%v", req.Id))
 		w.WriteHeader(http.StatusCreated)
 	})
 

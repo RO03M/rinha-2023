@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -24,8 +25,78 @@ type Person struct {
 	Stack    []string  `json:"stack"`
 }
 
+type insertRequest struct {
+	person CreatePerson
+}
+
 type PersonService struct {
-	db *pgxpool.Pool
+	db        *pgxpool.Pool
+	queue     chan insertRequest
+	insertMap map[string]insertRequest
+}
+
+func NewPersonService(db *pgxpool.Pool) *PersonService {
+	service := &PersonService{
+		db:        db,
+		queue:     make(chan insertRequest, 10000),
+		insertMap: map[string]insertRequest{},
+	}
+
+	go service.tickWorker()
+
+	return service
+}
+
+func (service *PersonService) tickWorker() {
+	ticker := time.NewTicker(200 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case req := <-service.queue:
+			if _, exists := service.insertMap[req.person.Nickname]; !exists {
+				service.insertMap[req.person.Nickname] = req
+			}
+		case <-ticker.C:
+			service.bulkInsert()
+			// break
+			// fmt.Println("tick it motherfucker")
+		}
+	}
+}
+
+func (service *PersonService) bulkInsert() {
+	if len(service.insertMap) == 0 {
+		return
+	}
+
+	args := make([]any, 0, len(service.insertMap)*5)
+	placeholders := make([]string, 0, len(service.insertMap))
+
+	i := 0
+
+	for _, person := range service.insertMap {
+		base := i * 5
+		placeholders = append(placeholders, fmt.Sprintf(
+			"($%d::uuid, $%d::text, $%d::text, $%d, $%d, to_tsvector('simple', $%d || ' ' || $%d || ' ' || array_to_string($%d::text[], ' ')))",
+			base+1, base+2, base+3, base+4, base+5, // id, name, nickname, birthday, stack
+			base+2, base+1, base+5, // name, nickname, stack for search
+		))
+		args = append(args, person.person.Id, person.person.Name, person.person.Nickname, person.person.Birthday, person.person.Stack)
+
+		i++
+
+		delete(service.insertMap, person.person.Nickname)
+	}
+
+	query := "INSERT INTO people (id, name, nickname, birthday, stack, search) VALUES " +
+		strings.Join(placeholders, ", ")
+
+	fmt.Println(query)
+	_, err := service.db.Exec(context.Background(), query, args...)
+	if err != nil {
+		fmt.Println("batch insert error:", err)
+	}
 }
 
 func (service *PersonService) CreatePerson(ctx context.Context, name string, nickname string, birthday string, stack []string) (string, error) {
