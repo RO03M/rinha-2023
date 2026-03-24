@@ -8,9 +8,11 @@ import (
 	"net/http"
 	"os"
 	"rinha/database"
+	"rinha/pkg"
 	"strconv"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/joho/godotenv"
 )
 
 type ErrorResponse struct {
@@ -27,6 +29,12 @@ func writeJSONError(w http.ResponseWriter, status int, message string) {
 }
 
 func NewHandler() http.Handler {
+	err := godotenv.Load(".env")
+
+	if err != nil {
+		fmt.Println(err)
+	}
+
 	mux := http.NewServeMux()
 	db := database.CreateDb()
 
@@ -83,8 +91,6 @@ func NewHandler() http.Handler {
 
 		person, err := personService.GetPersonById(r.Context(), id)
 
-		fmt.Println(person, err)
-
 		if err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
 				w.WriteHeader(http.StatusNotFound)
@@ -111,13 +117,15 @@ func NewHandler() http.Handler {
 func run() {
 	handler := NewHandler()
 
+	port := pkg.GetEnvOr("PORT", "80")
+
 	server := http.Server{
-		Addr:     ":9999",
+		Addr:     fmt.Sprintf(":%s", port),
 		Handler:  handler,
 		ErrorLog: log.New(os.Stderr, "http: ", log.LstdFlags),
 	}
 
-	fmt.Println("running")
+	fmt.Printf("running on port :%s\n", port)
 
 	if err := server.ListenAndServe(); err != nil {
 		log.Fatal(err)
