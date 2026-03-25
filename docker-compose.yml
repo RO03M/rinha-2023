@@ -14,6 +14,8 @@ services:
       - DB_HOST=db
       - DB_PORT=5432
       - DB_NAME=rinha
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
     deploy:
       resources:
         limits:
@@ -34,6 +36,8 @@ services:
       - DB_HOST=db
       - DB_PORT=5432
       - DB_NAME=rinha
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
     deploy:
       resources:
         limits:
@@ -64,7 +68,7 @@ services:
       resources:
         limits:
           cpus: '0.25'
-          memory: '0.75GB'
+          memory: '0.2GB'
   db:
     # Banco de dados
     image: postgres
@@ -72,7 +76,7 @@ services:
       resources:
         limits:
           cpus: '0.5'
-          memory: '0.75GB'
+          memory: '1.3GB'
     ports:
       - "5432:5432"
     volumes:

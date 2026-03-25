@@ -6,7 +6,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/bytedance/sonic"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/redis/go-redis/v9"
 )
 
 type CreatePerson struct {
@@ -33,11 +35,13 @@ type PersonService struct {
 	db        *pgxpool.Pool
 	queue     chan insertRequest
 	insertMap map[string]insertRequest
+	redis     *redis.Client
 }
 
-func NewPersonService(db *pgxpool.Pool) *PersonService {
+func NewPersonService(db *pgxpool.Pool, redis *redis.Client) *PersonService {
 	service := &PersonService{
 		db:        db,
+		redis:     redis,
 		queue:     make(chan insertRequest, 10000),
 		insertMap: map[string]insertRequest{},
 	}
@@ -45,6 +49,14 @@ func NewPersonService(db *pgxpool.Pool) *PersonService {
 	go service.tickWorker()
 
 	return service
+}
+func (service *PersonService) ClaimNickname(nickname string) (bool, error) {
+	ok, err := service.redis.SetArgs(context.Background(), "nick:"+nickname, 1, redis.SetArgs{
+		Mode: "NX",
+		TTL:  0,
+	}).Result()
+
+	return ok == "OK", err
 }
 
 func (service *PersonService) tickWorker() {
@@ -92,11 +104,18 @@ func (service *PersonService) bulkInsert() {
 	query := "INSERT INTO people (id, name, nickname, birthday, stack, search) VALUES " +
 		strings.Join(placeholders, ", ")
 
-	fmt.Println(query)
 	_, err := service.db.Exec(context.Background(), query, args...)
 	if err != nil {
 		fmt.Println("batch insert error:", err)
 	}
+}
+
+func (service *PersonService) CachePerson(ctx context.Context, person CreatePerson) error {
+	data, err := sonic.Marshal(person)
+	if err != nil {
+		return err
+	}
+	return service.redis.Set(ctx, "person:"+person.Id, data, 5*time.Minute).Err()
 }
 
 func (service *PersonService) CreatePerson(ctx context.Context, name string, nickname string, birthday string, stack []string) (string, error) {
