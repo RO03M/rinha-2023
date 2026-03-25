@@ -9,7 +9,7 @@ CREATE TABLE people (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     nickname VARCHAR(32) NOT NULL,
     name VARCHAR(100) NOT NULL,
-    birthday TIMESTAMPTZ NOT NULL,
+    birthday DATE NOT NULL,
     stack TEXT[],
     search tsvector GENERATED ALWAYS AS (
         to_tsvector('simple'::regconfig, name || ' ' || nickname || ' ' || coalesce(array_to_string_immutable(stack, ' '::text), ''))

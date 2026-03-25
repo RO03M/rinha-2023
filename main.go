@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -11,6 +12,7 @@ import (
 	"rinha/pkg"
 	"strconv"
 
+	"github.com/bytedance/sonic"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/joho/godotenv"
@@ -25,9 +27,10 @@ func writeJSONError(w http.ResponseWriter, status int, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 
-	json.NewEncoder(w).Encode(ErrorResponse{
+	buf, _ := sonic.Marshal(ErrorResponse{
 		Error: message,
 	})
+	w.Write(buf)
 }
 
 func isValidDate(s string) bool {
@@ -39,7 +42,9 @@ func isValidDate(s string) bool {
 			return false
 		}
 	}
-	return true
+	month := (int(s[5]-'0') * 10) + int(s[6]-'0')
+	day := (int(s[8]-'0') * 10) + int(s[9]-'0')
+	return month >= 1 && month <= 12 && day >= 1 && day <= 31
 }
 
 func NewHandler() http.Handler {
@@ -64,10 +69,11 @@ func NewHandler() http.Handler {
 	mux.HandleFunc("POST /pessoas", func(w http.ResponseWriter, r *http.Request) {
 		defer r.Body.Close()
 		var req CreatePerson
-		err := json.NewDecoder(r.Body).Decode(&req)
+		body, _ := io.ReadAll(r.Body)
+		err := sonic.Unmarshal(body, &req)
 
 		if err != nil {
-			writeJSONError(w, http.StatusBadRequest, "Body inválido")
+			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
 
@@ -83,7 +89,6 @@ func NewHandler() http.Handler {
 			return
 		}
 
-		// id, err := personService.CreatePerson(r.Context(), req.Name, req.Nickname, req.Birthday, req.Stack)
 		req.Id = uuid.NewString()
 		personService.queue <- insertRequest{
 			person: req,
@@ -91,17 +96,12 @@ func NewHandler() http.Handler {
 
 		personService.CachePerson(r.Context(), req)
 
-		// if err != nil {
-		// 	fmt.Println(err)
-		// 	w.WriteHeader(http.StatusUnprocessableEntity)
-		// 	return
-		// }
-
 		w.Header().Set("Location", fmt.Sprintf("/pessoas/%v", req.Id))
 		w.WriteHeader(http.StatusCreated)
 	})
 
 	mux.HandleFunc("GET /pessoas", func(w http.ResponseWriter, r *http.Request) {
+		defer r.Body.Close()
 		term := r.URL.Query().Get("t")
 
 		if term == "" {
@@ -124,6 +124,7 @@ func NewHandler() http.Handler {
 	})
 
 	mux.HandleFunc("GET /pessoas/{id}", func(w http.ResponseWriter, r *http.Request) {
+		defer r.Body.Close()
 		id := r.PathValue("id")
 
 		val, err := redisClient.Get(r.Context(), "person:"+id).Bytes()
@@ -147,9 +148,11 @@ func NewHandler() http.Handler {
 		}
 
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(person)
+		buf, _ := sonic.Marshal(person)
+		w.Write(buf)
 	})
 	mux.HandleFunc("GET /contagem-pessoas", func(w http.ResponseWriter, r *http.Request) {
+		defer r.Body.Close()
 		total := personService.Count(r.Context())
 
 		w.WriteHeader(http.StatusOK)

@@ -4,7 +4,10 @@ services:
     build: .
     hostname: api1
     depends_on:
-      - db
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
     expose:
       - "80"
     environment:

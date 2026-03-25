@@ -6,7 +6,7 @@ for (let i = 0; i < 1000; i++) {
         body: JSON.stringify({
             nome: faker.person.firstName(),
             apelido: faker.person.firstName(),
-            nascimento: "2003-07-19",
+            nascimento: "1974-13-01",
             stack: ["go", "js"]
         })
     });
