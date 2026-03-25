@@ -1,8 +1,7 @@
 version: '3.5'
 services:
-  api1:
-    # API - Instância 01
-    image: api
+  api1: &api
+    build: .
     hostname: api1
     depends_on:
       - db
@@ -23,26 +22,8 @@ services:
           memory: '0.5GB'
 
   api2:
-    # API - Instância 01
-    image: api
+    <<: *api
     hostname: api2
-    depends_on:
-      - db
-    expose:
-      - "80"
-    environment:
-      - DB_USER=admin
-      - DB_PASSWORD=admin
-      - DB_HOST=db
-      - DB_PORT=5432
-      - DB_NAME=rinha
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
-    deploy:
-      resources:
-        limits:
-          cpus: '0.25'
-          memory: '0.5GB'
 
   nginx:
     # Load Balancer
@@ -77,12 +58,18 @@ services:
         limits:
           cpus: '0.5'
           memory: '1.3GB'
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U admin -d rinha"]
+      interval: 30s
+      timeout: 60s
+      retries: 5
+      start_period: 80s
     ports:
       - "5432:5432"
     volumes:
       - ./init.sql:/docker-entrypoint-initdb.d/init.sql
       - ./postgresql.conf:/etc/postgresql.conf
-    # command: postgres -c config_file=/etc/postgresql.conf
+    command: postgres -c config_file=/etc/postgresql.conf
     environment:
       POSTGRES_PASSWORD: admin
       POSTGRES_USER: admin

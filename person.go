@@ -90,9 +90,8 @@ func (service *PersonService) bulkInsert() {
 	for _, person := range service.insertMap {
 		base := i * 5
 		placeholders = append(placeholders, fmt.Sprintf(
-			"($%d::uuid, $%d::text, $%d::text, $%d, $%d, to_tsvector('simple', $%d || ' ' || $%d || ' ' || array_to_string($%d::text[], ' ')))",
-			base+1, base+2, base+3, base+4, base+5, // id, name, nickname, birthday, stack
-			base+2, base+1, base+5, // name, nickname, stack for search
+			"($%d::uuid, $%d::text, $%d::text, $%d, $%d)",
+			base+1, base+2, base+3, base+4, base+5,
 		))
 		args = append(args, person.person.Id, person.person.Name, person.person.Nickname, person.person.Birthday, person.person.Stack)
 
@@ -101,7 +100,7 @@ func (service *PersonService) bulkInsert() {
 		delete(service.insertMap, person.person.Nickname)
 	}
 
-	query := "INSERT INTO people (id, name, nickname, birthday, stack, search) VALUES " +
+	query := "INSERT INTO people (id, name, nickname, birthday, stack) VALUES " +
 		strings.Join(placeholders, ", ")
 
 	_, err := service.db.Exec(context.Background(), query, args...)
