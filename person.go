@@ -11,6 +11,7 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
+
 type CreatePerson struct {
 	Id       string   `json:"id"`
 	Name     string   `json:"nome"`

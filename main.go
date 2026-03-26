@@ -44,7 +44,27 @@ func isValidDate(s string) bool {
 	}
 	month := (int(s[5]-'0') * 10) + int(s[6]-'0')
 	day := (int(s[8]-'0') * 10) + int(s[9]-'0')
-	return month >= 1 && month <= 12 && day >= 1 && day <= 31
+
+	if month < 1 || month > 12 || day < 1 {
+		return false
+	}
+
+	var maxDay int
+	switch month {
+	case 2:
+		year := int(s[0]-'0')*1000 + int(s[1]-'0')*100 + int(s[2]-'0')*10 + int(s[3]-'0')
+		if year%4 == 0 && (year%100 != 0 || year%400 == 0) {
+			maxDay = 29
+		} else {
+			maxDay = 28
+		}
+	case 4, 6, 9, 11:
+		maxDay = 30
+	default:
+		maxDay = 31
+	}
+
+	return day <= maxDay
 }
 
 func NewHandler() http.Handler {
