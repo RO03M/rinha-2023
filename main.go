@@ -1,18 +1,15 @@
 package main
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log"
-	"net/http"
-	"os"
 	"rinha/database"
 	"rinha/pkg"
 	"strconv"
 
 	"github.com/bytedance/sonic"
+	"github.com/gofiber/fiber/v3"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/joho/godotenv"
@@ -21,16 +18,6 @@ import (
 
 type ErrorResponse struct {
 	Error string `json:"error"`
-}
-
-func writeJSONError(w http.ResponseWriter, status int, message string) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-
-	buf, _ := sonic.Marshal(ErrorResponse{
-		Error: message,
-	})
-	w.Write(buf)
 }
 
 func isValidDate(s string) bool {
@@ -67,7 +54,7 @@ func isValidDate(s string) bool {
 	return day <= maxDay
 }
 
-func NewHandler() http.Handler {
+func NewApp() *fiber.App {
 	uuid.EnableRandPool()
 	err := godotenv.Load(".env")
 
@@ -75,7 +62,13 @@ func NewHandler() http.Handler {
 		fmt.Println(err)
 	}
 
-	mux := http.NewServeMux()
+	app := fiber.New(fiber.Config{
+		JSONEncoder: sonic.Marshal,
+		JSONDecoder: sonic.Unmarshal,
+		AppName:     "rinha-2023-q3-romera",
+	})
+
+	// mux := http.NewServeMux()
 	db := database.CreateDb()
 	redisClient := redis.NewClient(&redis.Options{
 		Addr:     pkg.GetEnvOr("REDIS_HOST", "localhost") + ":" + pkg.GetEnvOr("REDIS_PORT", "6379"),
@@ -86,118 +79,94 @@ func NewHandler() http.Handler {
 
 	personService := NewPersonService(db, redisClient)
 
-	mux.HandleFunc("POST /pessoas", func(w http.ResponseWriter, r *http.Request) {
-		defer r.Body.Close()
+	app.Post("/pessoas", func(c fiber.Ctx) error {
 		var req CreatePerson
-		body, _ := io.ReadAll(r.Body)
-		err := sonic.Unmarshal(body, &req)
+		// body, _ := io.ReadAll(r.Body)
 
-		if err != nil {
-			w.WriteHeader(http.StatusBadRequest)
-			return
+		if err := sonic.Unmarshal(c.Body(), &req); err != nil {
+			// w.WriteHeader(http.StatusBadRequest)
+			return c.SendStatus(fiber.StatusBadRequest)
 		}
 
-		if len(req.Nickname) > 32 || len(req.Name) > 100 || !isValidDate(req.Birthday) {
-			w.WriteHeader(http.StatusUnprocessableEntity)
-			return
+		if req.Nickname == "" || req.Name == "" || len(req.Nickname) > 32 || len(req.Name) > 100 || !isValidDate(req.Birthday) {
+			return c.SendStatus(fiber.StatusUnprocessableEntity)
 		}
 
 		available, err := personService.ClaimNickname(req.Nickname)
 
+		fmt.Println(available)
+
 		if !available || err != nil {
-			w.WriteHeader(http.StatusUnprocessableEntity)
-			return
+			return c.SendStatus(fiber.StatusUnprocessableEntity)
 		}
 
 		req.Id = uuid.NewString()
-		personService.queue <- insertRequest{
-			person: req,
-		}
+		personService.queue <- insertRequest{person: req}
 
-		personService.CachePerson(r.Context(), req)
+		personService.CachePerson(c.Context(), req)
 
-		w.Header().Set("Location", fmt.Sprintf("/pessoas/%v", req.Id))
-		w.WriteHeader(http.StatusCreated)
+		c.Set("Location", fmt.Sprintf("/pessoas/%v", req.Id))
+		return c.SendStatus(fiber.StatusCreated)
 	})
 
-	mux.HandleFunc("GET /pessoas", func(w http.ResponseWriter, r *http.Request) {
-		defer r.Body.Close()
-		term := r.URL.Query().Get("t")
+	app.Get("/pessoas", func(c fiber.Ctx) error {
+		term := c.Query("t")
 
 		if term == "" {
-			w.WriteHeader(http.StatusBadRequest)
-			return
+			return c.SendStatus(fiber.StatusBadRequest)
 		}
 
-		people, err := personService.GetPeopleByTerm(r.Context(), term)
+		people, err := personService.GetPeopleByTerm(c.Context(), term)
 
 		if err != nil {
 			fmt.Println(err)
-			w.WriteHeader(http.StatusUnprocessableEntity)
-			return
+			return c.SendStatus(fiber.StatusUnprocessableEntity)
 		}
 
-		w.WriteHeader(http.StatusOK)
-		encoder := json.NewEncoder(w)
-		encoder.SetEscapeHTML(false)
-		encoder.Encode(people)
+		return c.JSON(people)
 	})
 
-	mux.HandleFunc("GET /pessoas/{id}", func(w http.ResponseWriter, r *http.Request) {
-		defer r.Body.Close()
-		id := r.PathValue("id")
+	app.Get("/pessoas/:id", func(c fiber.Ctx) error {
+		id := c.Params("id")
 
-		val, err := redisClient.Get(r.Context(), "person:"+id).Bytes()
+		val, err := redisClient.Get(c.Context(), "person:"+id).Bytes()
 
 		if err == nil {
-			w.WriteHeader(http.StatusOK)
-			w.Write(val)
-			return
+			c.Set(fiber.HeaderContentType, fiber.MIMEApplicationJSON)
+			return c.Send(val)
 		}
 
-		person, err := personService.GetPersonById(r.Context(), id)
+		person, err := personService.GetPersonById(c.Context(), id)
 
 		if err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
-				w.WriteHeader(http.StatusNotFound)
-				return
+				return c.SendStatus(fiber.StatusNotFound)
 			}
 			fmt.Println(err)
-			w.WriteHeader(http.StatusUnprocessableEntity)
-			return
+
+			return c.SendStatus(fiber.StatusUnprocessableEntity)
 		}
 
-		w.WriteHeader(http.StatusOK)
-		buf, _ := sonic.Marshal(person)
-		w.Write(buf)
-	})
-	mux.HandleFunc("GET /contagem-pessoas", func(w http.ResponseWriter, r *http.Request) {
-		defer r.Body.Close()
-		total := personService.Count(r.Context())
-
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(strconv.Itoa(total)))
+		return c.JSON(person)
 	})
 
-	return mux
+	app.Get("/contagem-pessoas", func(c fiber.Ctx) error {
+		total := personService.Count(c.Context())
+
+		return c.SendString(strconv.Itoa(total))
+	})
+
+	return app
 }
 
 func run() {
-	handler := NewHandler()
+	app := NewApp()
 
 	port := pkg.GetEnvOr("PORT", "80")
 
-	server := http.Server{
-		Addr:     fmt.Sprintf(":%s", port),
-		Handler:  handler,
-		ErrorLog: log.New(os.Stderr, "http: ", log.LstdFlags),
-	}
-
 	fmt.Printf("running on port :%s\n", port)
 
-	if err := server.ListenAndServe(); err != nil {
-		log.Fatal(err)
-	}
+	log.Fatal(app.Listen(fmt.Sprintf(":%s", port)))
 }
 
 func main() {
