@@ -1,0 +1,11 @@
+{
+  "name": "rinha-stress-test",
+  "version": "1.0.0",
+  "scripts": {
+    "test": "k6 run test.js",
+    "test:smoke": "k6 run --vus 5 --duration 10s test.js",
+    "test:load": "k6 run --vus 100 --duration 30s test.js",
+    "test:stress": "k6 run test.js --env SCENARIO=stress",
+    "test:consulta": "k6 run test.js --env SCENARIO=consulta"
+  }
+}

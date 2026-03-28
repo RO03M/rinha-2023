@@ -94,8 +94,6 @@ func NewApp() *fiber.App {
 
 		available, err := personService.ClaimNickname(req.Nickname)
 
-		fmt.Println(available)
-
 		if !available || err != nil {
 			return c.SendStatus(fiber.StatusUnprocessableEntity)
 		}
@@ -154,6 +152,13 @@ func NewApp() *fiber.App {
 		total := personService.Count(c.Context())
 
 		return c.SendString(strconv.Itoa(total))
+	})
+
+	app.Get("/reset", func(c fiber.Ctx) error {
+		db.Exec(c.Context(), "TRUNCATE TABLE people")
+		redisClient.FlushAll(c.Context())
+
+		return c.SendString("ok")
 	})
 
 	return app

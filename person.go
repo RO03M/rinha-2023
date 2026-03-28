@@ -11,7 +11,6 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-
 type CreatePerson struct {
 	Id       string   `json:"id"`
 	Name     string   `json:"nome"`
@@ -61,7 +60,7 @@ func (service *PersonService) ClaimNickname(nickname string) (bool, error) {
 }
 
 func (service *PersonService) tickWorker() {
-	ticker := time.NewTicker(200 * time.Millisecond)
+	ticker := time.NewTicker(50 * time.Millisecond)
 	defer ticker.Stop()
 
 	for {
@@ -88,6 +87,8 @@ func (service *PersonService) bulkInsert() {
 
 	i := 0
 
+	peopleCount := len(service.insertMap)
+
 	for _, person := range service.insertMap {
 		base := i * 5
 		placeholders = append(placeholders, fmt.Sprintf(
@@ -104,7 +105,11 @@ func (service *PersonService) bulkInsert() {
 	query := "INSERT INTO people (id, name, nickname, birthday, stack) VALUES " +
 		strings.Join(placeholders, ", ")
 
+	start := time.Now()
 	_, err := service.db.Exec(context.Background(), query, args...)
+	took := time.Since(start)
+
+	fmt.Printf("Inserted %v, took %s\n", peopleCount, took)
 	if err != nil {
 		fmt.Println("batch insert error:", err)
 	}
@@ -216,12 +221,15 @@ func (service *PersonService) GetPeopleByTerm(ctx context.Context, term string) 
 	WHERE search @@ plainto_tsquery('simple', $1)
 	LIMIT 50
 	`
-
+	start := time.Now()
 	rows, err := service.db.Query(
 		ctx,
 		query,
 		term,
 	)
+	took := time.Since(start)
+
+	fmt.Printf("Searched by term \"%s\". Took: %s\n", term, took)
 
 	if err != nil {
 		return []Person{}, err
